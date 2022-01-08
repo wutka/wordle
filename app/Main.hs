@@ -1,5 +1,6 @@
 module Main where
 
+import System.Environment
 import Data.List
 import Data.Char
 
@@ -26,14 +27,14 @@ wordAllowed (Restrictions (MustContain mustContain) (CannotContain cannotContain
     posOK w (ch,pos) = ch == (w !! pos)
     notPosOK w (ch,pos) = ch /= (w !! pos)
 
-loadDict :: String -> IO [String]
-loadDict file = do
+loadDict :: String -> Int -> IO [String]
+loadDict file wordLength = do
   -- load the dictionary of common words
   contents <- readFile file
-  -- only use the ones with length 5
-  return $ filter len5 (lines contents)
+  -- only use the ones with the correct length
+  return $ filter checkLen (lines contents)
   where
-    len5 x = length x == 5
+    checkLen x = length x == wordLength
 
 getMustContain :: String -> [Char]
 getMustContain wordResult =
@@ -97,12 +98,15 @@ bestCandidate dict =
   where
     compareCandidates (_, c1s) (_, c2s) = compare c1s c2s
 
-doRound :: Restrictions -> [String] -> String -> IO ()
-doRound restrictions dict lastWord = do
-  putStr "Dictionary now has "
-  putStr $ show $ length dict
-  putStrLn " entries"
-  print dict
+doRound :: Bool -> Restrictions -> [String] -> String -> IO ()
+doRound debugFlag restrictions dict lastWord = do
+  if debugFlag then do
+    putStr "Dictionary now has "
+    putStr $ show $ length dict
+    putStrLn " entries"
+    print dict
+  else do
+    return ()
   putStrLn lastWord
   wordResult <- getLine
   -- update the restrictions based on the result
@@ -113,11 +117,28 @@ doRound restrictions dict lastWord = do
 
   -- choose a new candidate word
   let nextCandidate = bestCandidate newDict
-  doRound rests newDict nextCandidate
+  doRound debugFlag rests newDict nextCandidate
+
+getDebugFlag :: [String] -> Bool
+getDebugFlag [] = False
+getDebugFlag (f:fs) = (f == "--debug") || getDebugFlag fs
+
+getWordLength :: [String] -> Int
+getWordLength [] = 5
+getWordLength [_] = 5
+getWordLength (f:fs) =
+  if f == "--length" then
+    read (head fs)
+  else
+    getWordLength fs
 
 main :: IO ()
 main = do
-  dict <- loadDict "common.txt"
+  args <- getArgs
+  let wordLength = getWordLength args
+  let debugFlag = getDebugFlag args
+  dict <- loadDict "common.txt" wordLength
+  let startWord = if wordLength == 5 then "AROSE" else bestCandidate dict
   -- bestCandidate takes a while to run on the whole dictionary, but since the
   -- initial candidate is always the same at the beginning, hard-code it
-  doRound emptyRestrictions dict "AROSE"
+  doRound debugFlag emptyRestrictions dict startWord
