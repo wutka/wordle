@@ -6,22 +6,25 @@ import Data.Char
 newtype MustContain = MustContain [Char] deriving (Eq, Show)
 newtype CannotContain = CannotContain [Char] deriving (Eq, Show)
 newtype Positions = Positions [(Char,Int)] deriving (Eq, Show)
+newtype NotPositions = NotPositions [(Char,Int)] deriving (Eq, Show)
 
-data Restrictions = Restrictions MustContain CannotContain Positions deriving (Eq, Show)
+data Restrictions = Restrictions MustContain CannotContain Positions NotPositions deriving (Eq, Show)
 
-emptyRestrictions = Restrictions (MustContain []) (CannotContain []) (Positions [])
+emptyRestrictions = Restrictions (MustContain []) (CannotContain []) (Positions []) (NotPositions [])
 
 wordAllowed :: Restrictions -> String -> Bool
 wordAllowed (Restrictions (MustContain mustContain) (CannotContain cannotContain)
-            (Positions positions)) w =
+            (Positions positions) (NotPositions notPositions)) w =
   -- each letter in mustContain must be in the word
   length mustContain == length (mustContain `intersect` nub w) &&
   -- none of the letters in cannotContain can be in the word
   null (cannotContain `intersect` w) &&
   -- any letter-at-position restrictions must match
-  all (posOK w) positions
+  all (posOK w) positions &&
+  all (notPosOK w) notPositions
   where
     posOK w (ch,pos) = ch == (w !! pos)
+    notPosOK w (ch,pos) = ch /= (w !! pos)
 
 loadDict :: String -> IO [String]
 loadDict file = do
@@ -56,14 +59,25 @@ getPositions (wr:wrs) (n:ns) =
   else
     getPositions wrs ns
 
+getNotPositions :: String -> [Int] -> [(Char,Int)]
+getNotPositions [] _ = []
+getNotPositions (wr:wrs) (n:ns) =
+  -- if wr is a lower-case letter, the letter and its position represent a
+  -- letter-not-at-position restriction
+  if isLower wr then
+    (toUpper wr,n) : getNotPositions wrs ns
+  else
+    getNotPositions wrs ns
+
 updateRestrictions :: Restrictions -> String -> String -> Restrictions
 updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannotContain)
-            (Positions positions)) lastWord wordResult =
+            (Positions positions) (NotPositions notPositions)) lastWord wordResult =
   -- update the restrictions with the mustContain, cannotContain, and positions
   -- derived from the most recent lastWord and wordResult
   Restrictions (MustContain (mustContain ++ getMustContain wordResult))
     (CannotContain (cannotContain ++ getCannotContain lastWord wordResult))
-    (Positions (positions ++ getPositions wordResult [1..]))
+    (Positions (positions ++ getPositions wordResult [0..]))
+    (NotPositions (notPositions ++ getNotPositions wordResult [0..]))
 
 numCommonLetters :: String -> String -> Int
 numCommonLetters s1 s2 =
