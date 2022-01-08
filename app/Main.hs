@@ -11,8 +11,10 @@ newtype NotPositions = NotPositions [(Char,Int)] deriving (Eq, Show)
 
 data Restrictions = Restrictions MustContain CannotContain Positions NotPositions deriving (Eq, Show)
 
+-- a Restrictions with no restrictions
 emptyRestrictions = Restrictions (MustContain []) (CannotContain []) (Positions []) (NotPositions [])
 
+-- Returns true if a word conforms to all the restrictions
 wordAllowed :: Restrictions -> String -> Bool
 wordAllowed (Restrictions (MustContain mustContain) (CannotContain cannotContain)
             (Positions positions) (NotPositions notPositions)) w =
@@ -22,11 +24,14 @@ wordAllowed (Restrictions (MustContain mustContain) (CannotContain cannotContain
   null (cannotContain `intersect` w) &&
   -- any letter-at-position restrictions must match
   all (posOK w) positions &&
+  -- any letter-not-at-position restrictions must match
   all (notPosOK w) notPositions
   where
     posOK w (ch,pos) = ch == (w !! pos)
     notPosOK w (ch,pos) = ch /= (w !! pos)
 
+-- Loads a file of words with each word on a separate line
+-- and filters it for words of a specific length
 loadDict :: String -> Int -> IO [String]
 loadDict file wordLength = do
   -- load the dictionary of common words
@@ -36,11 +41,17 @@ loadDict file wordLength = do
   where
     checkLen x = length x == wordLength
 
+-- Computes a list of letters to add to MustContain from a word result
+-- where the lower case letters in the word result indicate a letter
+-- that is correct but in the wrong position
 getMustContain :: String -> [Char]
 getMustContain wordResult =
   -- any lower case letters in wordResult are additions to mustContain
   map toUpper $ filter isLower wordResult
 
+-- Computes a list of letters to add to CannotContain from the last word
+-- tried and the word result, where each . in the word result means that
+-- the corresponding letter in the last word should be added to CannotContain
 getCannotContain :: String -> String -> [Char]
 getCannotContain [] _ = []
 getCannotContain (lw:lws) (wr:wrs) =
@@ -50,6 +61,9 @@ getCannotContain (lw:lws) (wr:wrs) =
   else
     getCannotContain lws wrs
 
+-- Computes a list of Letter-Position pairs for letters that must be in a
+-- particular position from the word result. An upper-case letter in the
+-- word result indicates that the letter must be in that position
 getPositions :: String -> [Int] -> [(Char,Int)]
 getPositions [] _ = []
 getPositions (wr:wrs) (n:ns) =
@@ -60,6 +74,9 @@ getPositions (wr:wrs) (n:ns) =
   else
     getPositions wrs ns
 
+-- Computes a list of Letter-Position pairs for letters that cannot be in a
+-- particular position from the word result. A lower-case letter in the
+-- word result indicates that the letter cannot be in that position
 getNotPositions :: String -> [Int] -> [(Char,Int)]
 getNotPositions [] _ = []
 getNotPositions (wr:wrs) (n:ns) =
@@ -70,34 +87,36 @@ getNotPositions (wr:wrs) (n:ns) =
   else
     getNotPositions wrs ns
 
+-- Updates the restrictions with the mustContain, cannotContain, positions and notPositions
+-- derived from the most recent lastWord and wordResult
 updateRestrictions :: Restrictions -> String -> String -> Restrictions
 updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannotContain)
             (Positions positions) (NotPositions notPositions)) lastWord wordResult =
-  -- update the restrictions with the mustContain, cannotContain, and positions
-  -- derived from the most recent lastWord and wordResult
   Restrictions (MustContain (mustContain ++ getMustContain wordResult))
     (CannotContain (cannotContain ++ getCannotContain lastWord wordResult))
     (Positions (positions ++ getPositions wordResult [0..]))
     (NotPositions (notPositions ++ getNotPositions wordResult [0..]))
 
+-- Returns the number of letters that two words in common
 numCommonLetters :: String -> String -> Int
 numCommonLetters s1 s2 =
-  -- return the number of letters that two words in common
   length $ nub s1 `intersect` nub s2
 
+-- Counts the number of letters this word has in common with every word in the dict
 evalCandidate :: [String] -> String -> (String, Int)
 evalCandidate dict word =
-  -- count the number of letters this word has in common with every word in the dict
   (word, sum $ map (numCommonLetters word) dict)
 
+-- Computes the best candidate as the one that has the most letters in common
+-- with the entire dictionary
 bestCandidate :: [String] -> String
 bestCandidate dict =
-  -- the best candidate is the one that has the most letters in common
-  -- with the entire dictionary
   fst $ maximumBy compareCandidates $ map (evalCandidate dict) dict
   where
     compareCandidates (_, c1s) (_, c2s) = compare c1s c2s
 
+-- Print the next word to try and wait for the user to enter the response
+-- then repeat
 doRound :: Bool -> Restrictions -> [String] -> String -> IO ()
 doRound debugFlag restrictions dict lastWord = do
   if debugFlag then do
@@ -119,10 +138,12 @@ doRound debugFlag restrictions dict lastWord = do
   let nextCandidate = bestCandidate newDict
   doRound debugFlag rests newDict nextCandidate
 
+-- Looks for "--debug" in command-line arguments
 getDebugFlag :: [String] -> Bool
 getDebugFlag [] = False
 getDebugFlag (f:fs) = (f == "--debug") || getDebugFlag fs
 
+-- Looks for "--length n" in command-line arguments
 getWordLength :: [String] -> Int
 getWordLength [] = 5
 getWordLength [_] = 5
@@ -138,7 +159,7 @@ main = do
   let wordLength = getWordLength args
   let debugFlag = getDebugFlag args
   dict <- loadDict "common.txt" wordLength
-  let startWord = if wordLength == 5 then "AROSE" else bestCandidate dict
   -- bestCandidate takes a while to run on the whole dictionary, but since the
   -- initial candidate is always the same at the beginning, hard-code it
+  let startWord = if wordLength == 5 then "AROSE" else bestCandidate dict
   doRound debugFlag emptyRestrictions dict startWord
