@@ -98,12 +98,14 @@ updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannot
     (Positions (positions ++ getPositions wordResult [0..]))
     (NotPositions (notPositions ++ getNotPositions wordResult [0..]))
 
+-- Updated the letter counts with the letters from the word
 updateLetterCounts :: Map.Map Char Int -> String -> Map.Map Char Int
 updateLetterCounts counts word =
   foldl' addLetter counts word
   where
     addLetter counts ch = Map.insertWith (+) ch 1 counts
 
+-- Count all the letters in each word in the current dict
 countLetters :: [String] -> Map.Map Char Int
 countLetters dict =
   foldl' updateLetterCounts (Map.empty) dict
@@ -111,6 +113,7 @@ countLetters dict =
 -- Counts the number of letters this word has in common with every word in the dict
 evalCandidate :: Map.Map Char Int -> String -> (String, Int)
 evalCandidate counts word =
+  -- sum the letter counts for each unique letter in word
   (word, sum $ map ((Map.!) counts) (nub word))
 
 -- Computes the best candidate as the one that has the most letters in common
