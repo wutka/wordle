@@ -3,6 +3,7 @@ module Main where
 import System.Environment
 import Data.List
 import Data.Char
+import qualified Data.Map as Map
 
 newtype MustContain = MustContain [Char] deriving (Eq, Show)
 newtype CannotContain = CannotContain [Char] deriving (Eq, Show)
@@ -97,27 +98,33 @@ updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannot
     (Positions (positions ++ getPositions wordResult [0..]))
     (NotPositions (notPositions ++ getNotPositions wordResult [0..]))
 
--- Returns the number of letters that two words in common
-numCommonLetters :: String -> String -> Int
-numCommonLetters s1 s2 =
-  length $ nub s1 `intersect` nub s2
+updateLetterCounts :: Map.Map Char Int -> String -> Map.Map Char Int
+updateLetterCounts counts word =
+  foldl' addLetter counts word
+  where
+    addLetter counts ch = Map.insertWith (+) ch 1 counts
+
+countLetters :: [String] -> Map.Map Char Int
+countLetters dict =
+  foldl' updateLetterCounts (Map.empty) dict
 
 -- Counts the number of letters this word has in common with every word in the dict
-evalCandidate :: [String] -> String -> (String, Int)
-evalCandidate dict word =
-  (word, sum $ map (numCommonLetters word) dict)
+evalCandidate :: Map.Map Char Int -> String -> (String, Int)
+evalCandidate counts word =
+  (word, sum $ map ((Map.!) counts) (nub word))
 
 -- Computes the best candidate as the one that has the most letters in common
 -- with the entire dictionary
 bestCandidate :: [String] -> String
 bestCandidate dict =
-  fst $ maximumBy compareCandidates $ map (evalCandidate dict) dict
+  fst $ maximumBy compareCandidates $ map (evalCandidate counts) dict
   where
+    counts = countLetters dict
     compareCandidates (_, c1s) (_, c2s) = compare c1s c2s
 
 -- Print the next word to try and wait for the user to enter the response
 -- then repeat
-doRound :: Bool -> Restrictions -> [String] -> String -> IO ()
+doRound :: Bool -> Restrictions -> [String] -> String -> IO String
 doRound debugFlag restrictions dict lastWord = do
   if debugFlag then do
     putStr "Dictionary now has "
@@ -136,7 +143,11 @@ doRound debugFlag restrictions dict lastWord = do
 
   -- choose a new candidate word
   let nextCandidate = bestCandidate newDict
-  doRound debugFlag rests newDict nextCandidate
+
+  if length newDict > 1 then
+    doRound debugFlag rests newDict nextCandidate
+  else
+    return nextCandidate
 
 -- Looks for "--debug" in command-line arguments
 getDebugFlag :: [String] -> Bool
@@ -162,4 +173,6 @@ main = do
   -- bestCandidate takes a while to run on the whole dictionary, but since the
   -- initial candidate is always the same at the beginning, hard-code it
   let startWord = if wordLength == 5 then "AROSE" else bestCandidate dict
-  doRound debugFlag emptyRestrictions dict startWord
+  finalWord <- doRound debugFlag emptyRestrictions dict startWord
+  putStr "Final word is "
+  putStrLn finalWord
