@@ -63,7 +63,7 @@ updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannot
   -- derived from the most recent lastWord and wordResult
   Restrictions (MustContain (mustContain ++ getMustContain wordResult))
     (CannotContain (cannotContain ++ getCannotContain lastWord wordResult))
-    (Positions (positions ++ getPositions wordResult [1..]))
+    (Positions (positions ++ getPositions wordResult [0..]))
 
 numCommonLetters :: String -> String -> Int
 numCommonLetters s1 s2 =
