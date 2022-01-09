@@ -173,9 +173,7 @@ main = do
   let wordLength = getWordLength args
   let debugFlag = getDebugFlag args
   dict <- loadDict "common.txt" wordLength
-  -- bestCandidate takes a while to run on the whole dictionary, but since the
-  -- initial candidate is always the same at the beginning, hard-code it
-  let startWord = if wordLength == 5 then "AROSE" else bestCandidate dict
+  let startWord = bestCandidate dict
   finalWord <- doRound debugFlag emptyRestrictions dict startWord
   putStr "Final word is "
   putStrLn finalWord
