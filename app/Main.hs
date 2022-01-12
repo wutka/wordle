@@ -4,6 +4,7 @@ import System.Environment
 import Data.List
 import Data.Char
 import qualified Data.Map as Map
+import System.Posix.Internals (fileType)
 
 newtype MustContain = MustContain [Char] deriving (Eq, Show)
 newtype CannotContain = CannotContain [Char] deriving (Eq, Show)
@@ -41,6 +42,18 @@ loadDict file wordLength = do
   return $ filter checkLen (lines contents)
   where
     checkLen x = length x == wordLength
+
+-- Loads a file of words and frequences, with word & its frequency on a separate line
+-- and filters it for words of a specific length
+loadFreqDict :: String -> Int -> IO (Map.Map String Int)
+loadFreqDict file wordLength = do
+  contents <- readFile file
+  -- turn each line into a (string,int) pair, filter them for length
+  -- and create a map from the resulting list
+  return $ Map.fromList $ filter lenOK $ map (makePair . words) $ lines contents
+  where
+    lenOK (w,f) = length w == wordLength
+    makePair ws = (head ws, read $ ws !! 1)
 
 -- Computes a list of letters to add to MustContain from a word result
 -- where the lower case letters in the word result indicate a letter
@@ -118,17 +131,22 @@ evalCandidate counts word =
 
 -- Computes the best candidate as the one that has the most letters in common
 -- with the entire dictionary
-bestCandidate :: [String] -> String
-bestCandidate dict =
+bestCandidate :: Map.Map String Int -> [String] -> String
+bestCandidate freqDict dict =
   fst $ maximumBy compareCandidates $ map (evalCandidate counts) dict
   where
     counts = countLetters dict
-    compareCandidates (_, c1s) (_, c2s) = compare c1s c2s
+    compareCandidates (c1w, c1s) (c2w, c2s) =
+      -- If the letter frequencies are the same, compare word frequencies
+      if c1s == c2s then
+        compare (freqDict Map.! c1w) (freqDict Map.! c2w)
+      else
+        compare c1s c2s
 
 -- Print the next word to try and wait for the user to enter the response
 -- then repeat
-doRound :: Bool -> Restrictions -> [String] -> String -> IO String
-doRound debugFlag restrictions dict lastWord = do
+doRound :: Bool -> Restrictions -> Map.Map String Int -> [String] -> String -> IO String
+doRound debugFlag restrictions freqDict dict lastWord = do
   if debugFlag then do
     putStr "Dictionary now has "
     putStr $ show $ length dict
@@ -145,10 +163,10 @@ doRound debugFlag restrictions dict lastWord = do
   let newDict = filter (wordAllowed rests) dict
 
   -- choose a new candidate word
-  let nextCandidate = bestCandidate newDict
+  let nextCandidate = bestCandidate freqDict newDict
 
   if length newDict > 1 then
-    doRound debugFlag rests newDict nextCandidate
+    doRound debugFlag rests freqDict newDict nextCandidate
   else
     return nextCandidate
 
@@ -172,8 +190,10 @@ main = do
   args <- getArgs
   let wordLength = getWordLength args
   let debugFlag = getDebugFlag args
-  dict <- loadDict "common.txt" wordLength
-  let startWord = bestCandidate dict
-  finalWord <- doRound debugFlag emptyRestrictions dict startWord
+  -- dict <- loadDict "common.txt" wordLength
+  freqDict <- loadFreqDict "common_freqs.txt" 5
+  let dict = map fst $ Map.toList freqDict
+  let startWord = bestCandidate freqDict dict
+  finalWord <- doRound debugFlag emptyRestrictions freqDict dict startWord
   putStr "Final word is "
   putStrLn finalWord
