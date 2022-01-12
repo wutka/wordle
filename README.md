@@ -18,6 +18,11 @@ me to try UNITS and Wordle had U and S in yellow, and NIT in gray,
 so I entered `u...s` at which point its third guess was correct.
 But, if N had been green, I would have entered `uN..s`.
 
+The program uses a dictionary with word frequencies that is an intersection
+of a list of common words, and Peter Norvig's [count_1w.txt](https://norvig.com/ngrams/count_1w.txt) file with word
+frequences of English words. If a word was in my list of common words but not 
+in Norvig's list, I assigned it a frequency of 1.
+
 ## Running
 The program is written in Haskell and uses Cabal for building.
 You should be able to run it with:
