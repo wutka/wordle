@@ -8,6 +8,8 @@ import System.Posix.Internals (fileType)
 import Debug.Trace
 import Control.Parallel.Strategies
 import Control.Parallel
+import Control.DeepSeq
+import Data.Ord (comparing)
 
 newtype MustContain = MustContain [Char] deriving (Eq, Show)
 newtype CannotContain = CannotContain [Char] deriving (Eq, Show)
@@ -94,15 +96,17 @@ getPositions (wr:wrs) (n:ns) =
 -- Computes a list of Letter-Position pairs for letters that cannot be in a
 -- particular position from the word result. A lower-case letter in the
 -- word result indicates that the letter cannot be in that position
-getNotPositions :: String -> [Int] -> [(Char,Int)]
-getNotPositions [] _ = []
-getNotPositions (wr:wrs) (n:ns) =
+getNotPositions :: String -> String-> [Int] -> [(Char,Int)]
+getNotPositions [] _ _ = []
+getNotPositions (lr:lrs) (wr:wrs) (n:ns) =
   -- if wr is a lower-case letter, the letter and its position represent a
   -- letter-not-at-position restriction
   if isLower wr then
-    (toUpper wr,n) : getNotPositions wrs ns
+    (toUpper wr,n) : getNotPositions lrs wrs ns
+  else if wr == '.' then
+    (lr,n) : getNotPositions lrs wrs ns
   else
-    getNotPositions wrs ns
+    getNotPositions lrs wrs ns
 
 -- Updates the restrictions with the mustContain, cannotContain, positions and notPositions
 -- derived from the most recent lastWord and wordResult
@@ -110,9 +114,12 @@ updateRestrictions :: Restrictions -> String -> String -> Restrictions
 updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannotContain)
             (Positions positions) (NotPositions notPositions)) lastWord wordResult =
   Restrictions (MustContain (mustContain ++ getMustContain wordResult))
-    (CannotContain (cannotContain ++ (lastWord \\ getCannotContain lastWord wordResult)))
+    (CannotContain (cannotContain ++ newCannotContain))
     (Positions (positions ++ getPositions wordResult [0..]))
-    (NotPositions (notPositions ++ getNotPositions wordResult [0..]))
+    (NotPositions (notPositions ++ getNotPositions lastWord wordResult [0..]))
+  where
+    newCannotContain = cc \\ (nub $ map toUpper wordResult)
+    cc = getCannotContain lastWord wordResult
 
 -- Updated the letter counts with the letters from the word
 updateLetterCounts :: Map.Map Char Int -> String -> Map.Map Char Int
@@ -183,18 +190,19 @@ bestCandidate' dict depth w =
 --   let res = (w, foldl' (addGuess dict w depth) 0 dict) in
 --   trace (show res) res
 -- else
-  (w, foldl' (addGuess dict w depth) 0 dict)
+  let !res = foldl' (addGuess dict w depth) 0 dict in
+  (w, res)
 
+bestCandidate :: [String] -> Int -> (String, Int)
 bestCandidate dict depth =
-  minimumBy compareCandidates allCandidates
+  minimumBy (comparing snd) allCandidates
   where
     allCandidates = parMap rpar (bestCandidate' dict depth) dict
-    compareCandidates (_,n1) (_,n2) = compare n1 n2
 
 -- Print the next word to try and wait for the user to enter the response
 -- then repeat
 doRound :: Bool -> Restrictions -> [String] -> String -> IO String
-doRound debugFlag restrictions  dict lastWord = do
+doRound debugFlag restrictions dict lastWord = do
   if debugFlag then do
     putStr "Dictionary now has "
     putStr $ show $ length dict
@@ -208,7 +216,7 @@ doRound debugFlag restrictions  dict lastWord = do
   let rests = updateRestrictions restrictions lastWord wordResult
 
   -- filter the dictionary based on the updated restrictions
-  let newDict = filter (wordAllowed rests) dict
+  let !newDict = filter (wordAllowed rests) dict
 
   -- choose a new candidate word
   let nextCandidate = fst $ bestCandidate newDict 0
