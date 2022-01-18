@@ -5,6 +5,9 @@ import Data.List
 import Data.Char
 import qualified Data.Map as Map
 import System.Posix.Internals (fileType)
+import Debug.Trace
+import Control.Parallel.Strategies
+import Control.Parallel
 
 newtype MustContain = MustContain [Char] deriving (Eq, Show)
 newtype CannotContain = CannotContain [Char] deriving (Eq, Show)
@@ -107,7 +110,7 @@ updateRestrictions :: Restrictions -> String -> String -> Restrictions
 updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannotContain)
             (Positions positions) (NotPositions notPositions)) lastWord wordResult =
   Restrictions (MustContain (mustContain ++ getMustContain wordResult))
-    (CannotContain (cannotContain ++ getCannotContain lastWord wordResult))
+    (CannotContain (cannotContain ++ (lastWord \\ getCannotContain lastWord wordResult)))
     (Positions (positions ++ getPositions wordResult [0..]))
     (NotPositions (notPositions ++ getNotPositions wordResult [0..]))
 
@@ -129,24 +132,69 @@ evalCandidate counts word =
   -- sum the letter counts for each unique letter in word
   (word, sum $ map ((Map.!) counts) (nub word))
 
--- Computes the best candidate as the one that has the most letters in common
--- with the entire dictionary
-bestCandidate :: Map.Map String Int -> [String] -> String
-bestCandidate freqDict dict =
-  fst $ maximumBy compareCandidates $ map (evalCandidate counts) dict
+computePositions pos [] _ = []
+computePositions pos (w:ws) (g:gs) =
+  if w == g then
+    (w,pos) : computePositions (pos+1) ws gs
+  else
+    computePositions (pos+1) ws gs
+
+checkNotPos :: String -> String -> [(Char,Int)] -> Int -> [(Char,Int)]
+checkNotPos w guess l n =
+  if wn /= gn && elem gn w then
+    (gn,n):l
+  else
+    l
   where
-    counts = countLetters dict
-    compareCandidates (c1w, c1s) (c2w, c2s) =
-      -- If the letter frequencies are the same, compare word frequencies
-      if c1s == c2s then
-        compare (freqDict Map.! c1w) (freqDict Map.! c2w)
-      else
-        compare c1s c2s
+    wn = w !! n
+    gn = guess !! n
+
+
+computeNotPositions :: String -> String -> [(Char, Int)]
+computeNotPositions w guess =
+  foldl' (checkNotPos w guess) [] [0..length w - 1]
+
+generateRestrictions w guess =
+  Restrictions (MustContain mustContain) (CannotContain cannotContain)
+    (Positions positions) (NotPositions notPositions)
+  where
+    mustContain = nub w
+    cannotContain = nub guess \\ nub w
+    positions = computePositions 0 w guess
+    notPositions = computeNotPositions w guess
+
+addGuess :: [String] -> String -> Int -> Int -> String -> Int
+addGuess dict guess depth acc w =
+--  trace ("Trying guess "++guess++" against word "++w) acc+newDepth
+  acc+newDepth
+  where
+    (_, newDepth) = bestCandidate' newDict (depth+1) w
+    newRestrictions = generateRestrictions w guess
+    newDict = filter (wordAllowed newRestrictions) dict
+
+bestCandidate' :: [String] -> Int -> String -> (String,Int)
+bestCandidate' [] _ w = error ("Dictionary empty for word "++w)
+--bestCandidate' [final] depth w = trace ("Got to "++w++" at depth "++(show depth)) (w,depth)
+bestCandidate' [final] depth w = (w,depth)
+bestCandidate' dict depth w =
+--  trace ("Trying "++w++" at depth "++(show depth)++" with dict "++(show  dict))
+--  (w, foldl' (addGuess dict w depth) 0 dict)
+-- if depth == 0 then
+--   let res = (w, foldl' (addGuess dict w depth) 0 dict) in
+--   trace (show res) res
+-- else
+  (w, foldl' (addGuess dict w depth) 0 dict)
+
+bestCandidate dict depth =
+  minimumBy compareCandidates allCandidates
+  where
+    allCandidates = parMap rpar (bestCandidate' dict depth) dict
+    compareCandidates (_,n1) (_,n2) = compare n1 n2
 
 -- Print the next word to try and wait for the user to enter the response
 -- then repeat
-doRound :: Bool -> Restrictions -> Map.Map String Int -> [String] -> String -> IO String
-doRound debugFlag restrictions freqDict dict lastWord = do
+doRound :: Bool -> Restrictions -> [String] -> String -> IO String
+doRound debugFlag restrictions  dict lastWord = do
   if debugFlag then do
     putStr "Dictionary now has "
     putStr $ show $ length dict
@@ -163,10 +211,10 @@ doRound debugFlag restrictions freqDict dict lastWord = do
   let newDict = filter (wordAllowed rests) dict
 
   -- choose a new candidate word
-  let nextCandidate = bestCandidate freqDict newDict
+  let nextCandidate = fst $ bestCandidate newDict 0
 
   if length newDict > 1 then
-    doRound debugFlag rests freqDict newDict nextCandidate
+    doRound debugFlag rests newDict nextCandidate
   else
     return nextCandidate
 
@@ -191,9 +239,9 @@ main = do
   let wordLength = getWordLength args
   let debugFlag = getDebugFlag args
   -- dict <- loadDict "common.txt" wordLength
-  freqDict <- loadFreqDict "common_freqs.txt" 5
-  let dict = map fst $ Map.toList freqDict
-  let startWord = bestCandidate freqDict dict
-  finalWord <- doRound debugFlag emptyRestrictions freqDict dict startWord
+  dict <- loadDict "common.txt" 5
+  --let startWord = fst $ bestCandidate dict 0
+  let startWord = "SALES"
+  finalWord <- doRound debugFlag emptyRestrictions dict startWord
   putStr "Final word is "
   putStrLn finalWord
