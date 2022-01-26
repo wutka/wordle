@@ -106,8 +106,8 @@ getNotPositions (wr:wrs) (n:ns) =
 updateRestrictions :: Restrictions -> String -> String -> Restrictions
 updateRestrictions (Restrictions (MustContain mustContain) (CannotContain cannotContain)
             (Positions positions) (NotPositions notPositions)) lastWord wordResult =
-  Restrictions (MustContain (mustContain ++ getMustContain wordResult))
-    (CannotContain (cannotContain ++ getCannotContain lastWord wordResult))
+  Restrictions (MustContain (nub $ mustContain ++ getMustContain wordResult))
+    (CannotContain (nub $ cannotContain ++ getCannotContain lastWord wordResult))
     (Positions (positions ++ getPositions wordResult [0..]))
     (NotPositions (notPositions ++ getNotPositions wordResult [0..]))
 
@@ -154,6 +154,7 @@ doRound debugFlag restrictions freqDict dict lastWord = do
     print dict
   else do
     return ()
+
   putStrLn lastWord
   wordResult <- getLine
   -- update the restrictions based on the result
